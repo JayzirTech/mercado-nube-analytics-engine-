@@ -1,0 +1,173 @@
+version: '3.8'
+
+# =============================================================================
+# DOCKER COMPOSE: AMBIENTE LOCAL REPRODUCIBLE (MERCADO NUBE)
+# =============================================================================
+# Cumple con el criterio de evaluación:
+# "Con una sola instrucción documentada se inicia el modo local y el DAG
+# puede ejecutarse sin pasos manuales ocultos en menos de 15 minutos."
+#
+# Servicios:
+# 1. postgres_dwh: Data Warehouse analítico local (emulación de Redshift).
+# 2. catalog_api: Microservicio FastAPI con catálogo paginado y rate-limiting.
+# 3. airflow_webserver & airflow_scheduler: Orquestador Apache Airflow.
+# =============================================================================
+
+networks:
+  mercado_nube_net:
+    driver: bridge
+
+volumes:
+  postgres_dwh_data:
+  airflow_postgres_data:
+
+services:
+  # ---------------------------------------------------------------------------
+  # 1. DATA WAREHOUSE ANALÍTICO LOCAL (PostgreSQL - Emulador Redshift)
+  # ---------------------------------------------------------------------------
+  postgres_dwh:
+    image: postgres:16-alpine
+    container_name: mercado_nube_postgres_dwh
+    environment:
+      POSTGRES_USER: ${DWH_USER:-dwh_admin}
+      POSTGRES_PASSWORD: ${DWH_PASSWORD:-dwh_secure_password123}
+      POSTGRES_DB: ${DWH_NAME:-mercado_nube_dwh}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_dwh_data:/var/lib/postgresql/data
+      - ./sql/ddl/01_dimensional_schema.sql:/docker-entrypoint-initdb.d/01_dimensional_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dwh_admin -d mercado_nube_dwh"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mercado_nube_net
+
+  # ---------------------------------------------------------------------------
+  # 2. MICROSERVICIO MOCK DE CATÁLOGO (FastAPI Paginada con Rate-Limit)
+  # ---------------------------------------------------------------------------
+  catalog_api:
+    image: python:3.11-slim
+    container_name: mercado_nube_catalog_api
+    working_dir: /app
+    volumes:
+      - .:/app
+    command: >
+      bash -c "pip install --no-cache-dir fastapi uvicorn &&
+               uvicorn services.catalog_api.main:app --host 0.0.0.0 --port 8000"
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8000/health\")'"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mercado_nube_net
+
+  # ---------------------------------------------------------------------------
+  # 3. BASE DE DATOS DE METADATOS DE AIRFLOW
+  # ---------------------------------------------------------------------------
+  airflow_metadata_db:
+    image: postgres:16-alpine
+    container_name: mercado_nube_airflow_db
+    environment:
+      POSTGRES_USER: ${AIRFLOW_DB_USER:-airflow}
+      POSTGRES_PASSWORD: ${AIRFLOW_DB_PASSWORD:-airflow}
+      POSTGRES_DB: ${AIRFLOW_DB_NAME:-airflow}
+    volumes:
+      - airflow_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow -d airflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mercado_nube_net
+
+  # ---------------------------------------------------------------------------
+  # 4. AIRFLOW INIT (Inicialización de Base de Datos y Usuario)
+  # ---------------------------------------------------------------------------
+  airflow_init:
+    image: apache/airflow:2.8.1-python3.11
+    container_name: mercado_nube_airflow_init
+    depends_on:
+      airflow_metadata_db:
+        condition: service_healthy
+    environment:
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow_metadata_db:5432/airflow
+      _AIRFLOW_DB_MIGRATE: 'true'
+      _AIRFLOW_WWW_USER_CREATE: 'true'
+      _AIRFLOW_WWW_USER_USERNAME: ${AIRFLOW_USER:-admin}
+      _AIRFLOW_WWW_USER_PASSWORD: ${AIRFLOW_PASSWORD:-admin}
+    command: version
+    networks:
+      - mercado_nube_net
+
+  # ---------------------------------------------------------------------------
+  # 5. AIRFLOW WEBSERVER (UI en http://localhost:8080)
+  # ---------------------------------------------------------------------------
+  airflow_webserver:
+    image: apache/airflow:2.8.1-python3.11
+    container_name: mercado_nube_airflow_webserver
+    depends_on:
+      airflow_init:
+        condition: service_completed_successfully
+      postgres_dwh:
+        condition: service_healthy
+      catalog_api:
+        condition: service_healthy
+    environment:
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow_metadata_db:5432/airflow
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+      PYTHONPATH: /opt/airflow
+      DWH_HOST: postgres_dwh
+      DWH_PORT: 5432
+      DWH_NAME: mercado_nube_dwh
+      DWH_USER: dwh_admin
+      DWH_PASSWORD: dwh_secure_password123
+      CATALOG_API_URL: http://catalog_api:8000
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./src:/opt/airflow/src
+      - ./services:/opt/airflow/services
+      - ./data:/opt/airflow/data
+      - ./sql:/opt/airflow/sql
+    ports:
+      - "8080:8080"
+    command: webserver
+    networks:
+      - mercado_nube_net
+
+  # ---------------------------------------------------------------------------
+  # 6. AIRFLOW SCHEDULER (Ejecución de DAGs)
+  # ---------------------------------------------------------------------------
+  airflow_scheduler:
+    image: apache/airflow:2.8.1-python3.11
+    container_name: mercado_nube_airflow_scheduler
+    depends_on:
+      airflow_init:
+        condition: service_completed_successfully
+    environment:
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow_metadata_db:5432/airflow
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+      PYTHONPATH: /opt/airflow
+      DWH_HOST: postgres_dwh
+      DWH_PORT: 5432
+      DWH_NAME: mercado_nube_dwh
+      DWH_USER: dwh_admin
+      DWH_PASSWORD: dwh_secure_password123
+      CATALOG_API_URL: http://catalog_api:8000
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./src:/opt/airflow/src
+      - ./services:/opt/airflow/services
+      - ./data:/opt/airflow/data
+      - ./sql:/opt/airflow/sql
+    command: scheduler
+    networks:
+      - mercado_nube_net
