@@ -55,7 +55,7 @@ services:
       - postgres_dwh_data:/var/lib/postgresql/data
       - ./sql/ddl/01_dimensional_schema.sql:/docker-entrypoint-initdb.d/01_dimensional_schema.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U dwh_admin -d mercado_nube_dwh"]
+      test: [ "CMD-SHELL", "pg_isready -U dwh_admin -d mercado_nube_dwh" ]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -79,7 +79,7 @@ services:
     ports:
       - "8000:8000"
     healthcheck:
-      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8000/health\")'"]
+      test: [ "CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8000/health\")'" ]
       interval: 5s
       timeout: 5s
       retries: 8
@@ -100,7 +100,7 @@ services:
     volumes:
       - airflow_postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U airflow -d airflow"]
+      test: [ "CMD-SHELL", "pg_isready -U airflow -d airflow" ]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -134,7 +134,7 @@ services:
   # 5. AIRFLOW WEBSERVER (UI en http://localhost:8080)
   # ---------------------------------------------------------------------------
   airflow_webserver:
-    image: apache/airflow:2.8.1-python3.11
+    image: apache/airflow:latest-python3.11
     container_name: mercado_nube_airflow_webserver
     depends_on:
       data_init:
