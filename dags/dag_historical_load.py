@@ -12,7 +12,10 @@ Cumple con la Sección 4 y 7 del simulacro técnico:
 
 from datetime import datetime, timedelta
 from airflow import DAG
-from airflow.operators.python import PythonOperator
+try:
+    from airflow.providers.standard.operators.python import PythonOperator
+except ImportError:
+    from airflow.operators.python import PythonOperator
 
 default_args = {
     "owner": "mercado_nube",
@@ -28,7 +31,7 @@ dag = DAG(
     dag_id="mercado_nube_historical_load",
     default_args=default_args,
     description="Carga histórica bajo demanda de Online Retail II y Catálogo Base",
-    schedule_interval=None,  # Manual / On-Demand
+    schedule=None,  # Manual / On-Demand
     start_date=datetime(2025, 1, 1),
     catchup=False,
     tags=["mercado_nube", "historical", "backfill"],

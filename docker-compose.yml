@@ -111,7 +111,7 @@ services:
   # 4. AIRFLOW INIT (Inicialización de Base de Datos y Usuario)
   # ---------------------------------------------------------------------------
   airflow_init:
-    image: apache/airflow:2.8.1-python3.11
+    image: apache/airflow:latest-python3.11
     container_name: mercado_nube_airflow_init
     depends_on:
       data_init:
@@ -166,7 +166,7 @@ services:
       - ./sql:/opt/airflow/sql
     ports:
       - "8080:8080"
-    command: webserver
+    command: api-server
     networks:
       - mercado_nube_net
 
@@ -174,7 +174,7 @@ services:
   # 6. AIRFLOW SCHEDULER (Ejecución de DAGs)
   # ---------------------------------------------------------------------------
   airflow_scheduler:
-    image: apache/airflow:2.8.1-python3.11
+    image: apache/airflow:latest-python3.11
     container_name: mercado_nube_airflow_scheduler
     depends_on:
       airflow_init:

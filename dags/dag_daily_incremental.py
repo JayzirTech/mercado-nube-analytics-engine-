@@ -10,7 +10,10 @@ Cumple con la Sección 4 y 7 del simulacro técnico:
 
 from datetime import datetime, timedelta
 from airflow import DAG
-from airflow.operators.python import PythonOperator
+try:
+    from airflow.providers.standard.operators.python import PythonOperator
+except ImportError:
+    from airflow.operators.python import PythonOperator
 
 default_args = {
     "owner": "mercado_nube",
@@ -26,7 +29,7 @@ dag = DAG(
     dag_id="mercado_nube_daily_incremental",
     default_args=default_args,
     description="Pipeline incremental diario de eventos de pedidos y publicación analítica",
-    schedule_interval="@daily",
+    schedule="@daily",
     start_date=datetime(2026, 10, 20),
     catchup=False,
     tags=["mercado_nube", "daily", "incremental"],
