@@ -18,6 +18,7 @@ networks:
 volumes:
   postgres_dwh_data:
   airflow_postgres_data:
+  pip_cache:
 
 services:
   # ---------------------------------------------------------------------------
@@ -27,10 +28,13 @@ services:
     image: python:3.11-slim
     container_name: mercado_nube_data_init
     working_dir: /app
+    environment:
+      PYTHONUNBUFFERED: "1"
     volumes:
       - .:/app
+      - pip_cache:/root/.cache/pip
     command: >
-      bash -c "pip install --no-cache-dir requests openpyxl &&
+      bash -c "pip install --quiet requests openpyxl duckdb pyarrow pandas pydantic &&
                python scripts/bootstrap_data.py"
     networks:
       - mercado_nube_net
@@ -65,6 +69,8 @@ services:
     image: python:3.11-slim
     container_name: mercado_nube_catalog_api
     working_dir: /app
+    environment:
+      PYTHONUNBUFFERED: "1"
     volumes:
       - .:/app
     command: >
@@ -143,6 +149,7 @@ services:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow_metadata_db:5432/airflow
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'false'
       _PIP_ADDITIONAL_REQUIREMENTS: "duckdb pyarrow pandas requests pydantic"
       PYTHONPATH: /opt/airflow
       DWH_HOST: postgres_dwh
@@ -176,6 +183,7 @@ services:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow_metadata_db:5432/airflow
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'false'
       _PIP_ADDITIONAL_REQUIREMENTS: "duckdb pyarrow pandas requests pydantic"
       PYTHONPATH: /opt/airflow
       DWH_HOST: postgres_dwh
