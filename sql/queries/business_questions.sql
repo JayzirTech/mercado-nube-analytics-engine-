@@ -58,7 +58,7 @@ WITH category_metrics AS (
         ROUND(SUM(i.line_total_usd), 2) AS gross_revenue_usd,
         COUNT(i.item_id) AS total_items_sold
     FROM dwh_analytics.fact_order_items i
-    JOIN dwh_analytics.dim_product p ON i.product_sk = p.product_sk
+    JOIN dwh_analytics.dim_product p ON i.sku = p.sku AND p.is_current = TRUE
     GROUP BY p.category
 )
 SELECT
@@ -93,7 +93,7 @@ SELECT
     SUM(CASE WHEN NOT i.is_refunded AND NOT i.is_cancelled THEN i.quantity ELSE 0 END) AS units_sold,
     ROUND(SUM(CASE WHEN NOT i.is_refunded AND NOT i.is_cancelled THEN i.line_total_usd ELSE 0 END), 2) AS net_sales_usd
 FROM dwh_analytics.fact_order_items i
-JOIN dwh_analytics.dim_product p ON i.product_sk = p.product_sk
+JOIN dwh_analytics.dim_product p ON i.sku = p.sku AND p.is_current = TRUE
 GROUP BY i.sku
 ORDER BY net_sales_usd DESC
 LIMIT 10;
@@ -111,7 +111,7 @@ SELECT
         ELSE 0.00 
     END AS return_rate_percent
 FROM dwh_analytics.fact_order_items i
-JOIN dwh_analytics.dim_product p ON i.product_sk = p.product_sk
+JOIN dwh_analytics.dim_product p ON i.sku = p.sku AND p.is_current = TRUE
 GROUP BY i.sku
 HAVING SUM(CASE WHEN i.is_refunded THEN ABS(i.quantity) ELSE 0 END) > 0
 ORDER BY return_volume DESC, return_rate_percent DESC

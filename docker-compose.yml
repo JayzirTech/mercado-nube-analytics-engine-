@@ -33,7 +33,7 @@ services:
       POSTGRES_PASSWORD: ${DWH_PASSWORD:-dwh_secure_password123}
       POSTGRES_DB: ${DWH_NAME:-mercado_nube_dwh}
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_dwh_data:/var/lib/postgresql/data
       - ./sql/ddl/01_dimensional_schema.sql:/docker-entrypoint-initdb.d/01_dimensional_schema.sql:ro
