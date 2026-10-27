@@ -21,6 +21,21 @@ volumes:
 
 services:
   # ---------------------------------------------------------------------------
+  # 0. BOOTSTRAP DE DATOS AUTOMÁTICO (Descarga Web & Verificación)
+  # ---------------------------------------------------------------------------
+  data_init:
+    image: python:3.11-slim
+    container_name: mercado_nube_data_init
+    working_dir: /app
+    volumes:
+      - .:/app
+    command: >
+      bash -c "pip install --no-cache-dir requests openpyxl &&
+               python scripts/bootstrap_data.py"
+    networks:
+      - mercado_nube_net
+
+  # ---------------------------------------------------------------------------
   # 1. DATA WAREHOUSE ANALÍTICO LOCAL (PostgreSQL - Emulador Redshift)
   # ---------------------------------------------------------------------------
   postgres_dwh:
@@ -61,7 +76,8 @@ services:
       test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8000/health\")'"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 8
+      start_period: 45s
     networks:
       - mercado_nube_net
 
@@ -92,6 +108,8 @@ services:
     image: apache/airflow:2.8.1-python3.11
     container_name: mercado_nube_airflow_init
     depends_on:
+      data_init:
+        condition: service_completed_successfully
       airflow_metadata_db:
         condition: service_healthy
     environment:
@@ -113,6 +131,8 @@ services:
     image: apache/airflow:2.8.1-python3.11
     container_name: mercado_nube_airflow_webserver
     depends_on:
+      data_init:
+        condition: service_completed_successfully
       airflow_init:
         condition: service_completed_successfully
       postgres_dwh:
