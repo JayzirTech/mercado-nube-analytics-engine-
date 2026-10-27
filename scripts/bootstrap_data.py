@@ -4,17 +4,19 @@ Script de Inicialización y Ejecución Automática (Bootstrap & Lakehouse Runner
 Se ejecuta automáticamente dentro del contenedor 'data_init' al hacer:
     docker compose up   O   docker compose up -d
 
-Garantiza la experiencia 'Zero-Touch' y 'Clean Slate':
-1. Limpia cualquier archivo generado en ejecuciones previas (Cleaned, Curated, Cuarentena)
-   para que cada arranque sea una prueba fresca desde cero.
+Comportamiento:
+1. NO elimina ningún archivo existente: preserva el estado del Lakehouse.
 2. Comprueba si existe el archivo CSV histórico 'online_retail_sample.csv'.
    - Si no existe: lo descarga automáticamente de la web (UCI / Kaggle) y lo extrae.
-   - Si ya existe: lo valida y continúa.
+   - Si ya existe: lo valida y continúa sin re-descargar.
 3. Comprueba si existe el dataset de 50.000 eventos diarios 'events_50k.jsonl'.
    - Si no existe: lo genera de forma determinista con semilla fija (seed=42).
-4. Procesa el Lakehouse completo (Raw -> Cleaned -> Curated -> Cuarentena) en Parquet (Snappy).
+   - Si ya existe: lo valida y continúa sin re-generar.
+4. Verifica la capa Curated del Lakehouse:
+   - Si no existe: ejecuta el pipeline de procesamiento (Raw -> Cleaned -> Curated -> Cuarentena).
+   - Si ya existe: conserva los datos existentes y avanza rápidamente.
 5. Ejecuta las 7 consultas analíticas de negocio en SQL y muestra los resultados por terminal.
-6. Notifica en tiempo real cada paso por la consola del contenedor.
+6. Muestra los enlaces de Airflow UI, Catalog API y PostgreSQL DWH.
 """
 
 from __future__ import annotations
@@ -65,40 +67,14 @@ def log_warning(msg: str):
     print(f"{YELLOW}[{timestamp}] [!] {msg}{RESET}", flush=True)
 
 
-def clean_generated_artifacts():
-    """
-    Elimina capas intermedias y finales generadas (cleaned, curated, quarantine)
-    para garantizar que cada arranque del contenedor evalúe el pipeline desde cero.
-    Preserva data/lakehouse/raw (a menos que el usuario lo haya borrado) y data/seed/.
-    """
-    log_header("PASO 0: LIMPIEZA INICIAL DE ARTIFACTS (PRUEBA DESDE CERO)")
-    lakehouse_dir = PROJECT_ROOT / "data" / "lakehouse"
-    dirs_to_clean = ["cleaned", "curated", "quarantine"]
-    cleaned_count = 0
-
-    for d in dirs_to_clean:
-        target_path = lakehouse_dir / d
-        if target_path.exists():
-            for item in target_path.iterdir():
-                if item.is_dir():
-                    shutil.rmtree(item, ignore_errors=True)
-                    cleaned_count += 1
-                elif item.is_file():
-                    item.unlink(missing_ok=True)
-                    cleaned_count += 1
-            log_info(f"Capa '{d}' vaciada correctamente.")
-
-    log_success(f"Entorno limpio ({cleaned_count} directorios/archivos previos eliminados). Listo para iniciar desde 0.")
-
-
 def ensure_retail_dataset() -> Path:
     """Verifica y descarga si es necesario el dataset histórico real."""
-    log_header("PASO 1: VERIFICACIÓN Y DESCARGA DE DATOS HISTÓRICOS REALES")
+    log_header("PASO 1: VERIFICACIÓN DE DATOS HISTÓRICOS REALES (WEB)")
     retail_dir = PROJECT_ROOT / "data" / "lakehouse" / "raw" / "retail_history"
     csv_path = retail_dir / "online_retail_sample.csv"
 
     if csv_path.exists() and csv_path.stat().st_size > 1_000_000:
-        log_success(f"Dataset histórico CSV ya existe ({csv_path.stat().st_size:,} bytes). Omitiendo descarga.")
+        log_success(f"Dataset histórico CSV existente ({csv_path.stat().st_size:,} bytes). Conservando archivo.")
         return csv_path
 
     log_warning("Dataset histórico CSV NO encontrado. Iniciando descarga automática desde la web (UCI / Kaggle)...")
@@ -115,7 +91,7 @@ def ensure_daily_events() -> Path:
     jsonl_path = events_dir / "events_50k.jsonl"
 
     if jsonl_path.exists() and jsonl_path.stat().st_size > 10_000_000:
-        log_success(f"Dataset de eventos JSONL ya existe ({jsonl_path.stat().st_size:,} bytes). Omitiendo generación.")
+        log_success(f"Dataset de eventos JSONL existente ({jsonl_path.stat().st_size:,} bytes). Conservando archivo.")
         return jsonl_path
 
     log_info("Dataset de eventos JSONL NO encontrado. Generando 50.000 registros deterministas (seed=42)...")
@@ -127,14 +103,21 @@ def ensure_daily_events() -> Path:
 
 
 def run_lakehouse_pipeline():
-    """Ejecuta el pipeline de procesamiento Lakehouse: Raw -> Cleaned -> Curated -> Cuarentena."""
-    log_header("PASO 3: PROCESAMIENTO LAKEHOUSE (CLEANED, CURATED & CUARENTENA)")
+    """Ejecuta el pipeline de procesamiento Lakehouse si no ha sido generado."""
+    log_header("PASO 3: ESTADO DEL LAKEHOUSE (CLEANED, CURATED & CUARENTENA)")
+    curated_dir = PROJECT_ROOT / "data" / "lakehouse" / "curated" / "fact_orders"
+    has_curated_data = curated_dir.exists() and any(curated_dir.glob("*.parquet"))
+
+    if has_curated_data:
+        log_success("Capa Curated (fact_orders Parquet) existente en disco. Conservando datos sin reescribir.")
+        return
+
     from src.infrastructure.processing.lakehouse_pipeline import LakehousePipeline
 
     pipeline = LakehousePipeline(base_dir=PROJECT_ROOT)
     batch_id = f"batch_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
 
-    log_info(f"Iniciando transformaciones columnares en Parquet (Snappy) | Batch: {batch_id}")
+    log_info(f"Capa Curated no encontrada. Iniciando transformaciones columnares en Parquet (Snappy) | Batch: {batch_id}")
     metrics = pipeline.run_full_pipeline(batch_id=batch_id)
 
     retail_m = metrics["retail_metrics"]
@@ -173,24 +156,21 @@ def main():
     print("*" * 75)
     print(f"{RESET}", flush=True)
 
-    # 1. Limpieza inicial de capas generadas
-    clean_generated_artifacts()
-
-    # 2. Descarga y bootstrap de datos raw
+    # 1. Comprobación de datos raw (descarga o generación sólo si faltan)
     ensure_retail_dataset()
     ensure_daily_events()
 
-    # 3. Procesamiento Lakehouse
+    # 2. Procesamiento Lakehouse (sólo si no está ya curado)
     run_lakehouse_pipeline()
 
-    # 4. Demostración Analítica
+    # 3. Demostración Analítica
     run_analytics_queries()
 
-    # 5. Resumen final
+    # 4. Resumen final de servicios
     elapsed = time.time() - start_time
     log_header("RESUMEN DE INICIALIZACIÓN COMPLETADA")
-    print(f"{GREEN}{BOLD}✔ Todo el pipeline y las consultas analíticas se ejecutaron en {elapsed:.2f} segundos.{RESET}")
-    print(f"{BOLD}Servicios locales listos:{RESET}")
+    print(f"{GREEN}{BOLD}✔ Comprobación completada en {elapsed:.2f} segundos.{RESET}")
+    print(f"{BOLD}Servicios locales activos:{RESET}")
     print(f"  • {BOLD}Apache Airflow UI:{RESET}     http://localhost:8080 (admin / admin)")
     print(f"  • {BOLD}API Mock Catálogo:{RESET}     http://localhost:8000/docs")
     print(f"  • {BOLD}PostgreSQL DWH:{RESET}        localhost:5433 (dwh_admin / mercado_nube_dwh)")
