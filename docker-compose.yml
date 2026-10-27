@@ -34,7 +34,7 @@ services:
       - .:/app
       - pip_cache:/root/.cache/pip
     command: >
-      bash -c "pip install --quiet requests openpyxl duckdb pyarrow pandas pydantic &&
+      bash -c "pip install --quiet requests openpyxl duckdb==1.1.3 pyarrow==17.0.0 pandas pydantic fastapi &&
                python scripts/bootstrap_data.py"
     networks:
       - mercado_nube_net
@@ -150,7 +150,7 @@ services:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
       AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'false'
-      _PIP_ADDITIONAL_REQUIREMENTS: "duckdb pyarrow pandas requests pydantic"
+      _PIP_ADDITIONAL_REQUIREMENTS: "duckdb==1.1.3 pyarrow==17.0.0 pandas requests pydantic"
       PYTHONPATH: /opt/airflow
       DWH_HOST: postgres_dwh
       DWH_PORT: 5432
@@ -184,7 +184,7 @@ services:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
       AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'false'
-      _PIP_ADDITIONAL_REQUIREMENTS: "duckdb pyarrow pandas requests pydantic"
+      _PIP_ADDITIONAL_REQUIREMENTS: "duckdb==1.1.3 pyarrow==17.0.0 pandas requests pydantic"
       PYTHONPATH: /opt/airflow
       DWH_HOST: postgres_dwh
       DWH_PORT: 5432
